@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>家族年齢表ジェネレーター</title>
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <style>
+      body {
+        font-family: sans-serif;
+        margin: 20px;
+      }
+      input {
+        margin: 5px;
+      }
+      table {
+        border-collapse: collapse;
+        margin-top: 20px;
+      }
+      th,
+      td {
+        border: 1px solid #ccc;
+        padding: 5px 10px;
+      }
+      .highlight-april {
+        background-color: #f0f0f0;
+      }
+      .label {
+        color: red;
+        font-weight: bold;
+        margin-left: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>家族年齢表ジェネレーター</h1>
+
+    <label>母親の生年月日: <input type="date" id="mother" /></label><br />
+    <label>父親の生年月日: <input type="date" id="father" /></label><br />
+    <div id="childrenContainer"></div>
+    <button id="addChildBtn">＋子どもを追加</button><br /><br />
+
+    <label>表示開始年月: <input type="month" id="startMonth" /></label><br />
+    <label>表示終了年月: <input type="month" id="endMonth" /></label
+    ><br /><br />
+
+    <button id="generateBtn">年齢表を生成</button>
+    <button id="downloadBtn">Excelでダウンロード</button>
+
+    <div id="tableContainer"></div>
+
+    <script>
+      let childCount = 0
+
+      function createChildInput(value = '') {
+        childCount++
+        const container = document.getElementById('childrenContainer')
+        const div = document.createElement('div')
+        div.innerHTML = `
+        <label>第${childCount}子の生年月日: 
+          <input type="date" class="child" value="${value}" />
+        </label><br/>
+      `
+        container.appendChild(div)
+      }
+
+      document.getElementById('addChildBtn').addEventListener('click', () => {
+        createChildInput()
+        saveFormData()
+      })
+
+      const parseDate = (value) => (value ? new Date(value) : null)
+
+      function getAgeText(birth, year, month) {
+        if (!birth) return ''
+        const refDate = new Date(year, month - 1)
+        let y = refDate.getFullYear() - birth.getFullYear()
+        let m = refDate.getMonth() - birth.getMonth()
+        if (m < 0) {
+          y--
+          m += 12
+        }
+        if (y < 0) return ''
+        return `${y}歳${m}ヶ月`
+      }
+
+      function generateTable() {
+        const mother = parseDate(document.getElementById('mother').value)
+        const father = parseDate(document.getElementById('father').value)
+        const children = Array.from(document.querySelectorAll('.child')).map(
+          (c) => parseDate(c.value)
+        )
+
+        const startInput = document.getElementById('startMonth').value
+        const endInput = document.getElementById('endMonth').value
+        if (!startInput || !endInput) {
+          alert('表示開始年月と終了年月を入力してください')
+          return
+        }
+
+        const start = new Date(startInput + '-01')
+        const end = new Date(endInput + '-01')
+        if (start > end) {
+          alert('開始年月は終了年月より前にしてください')
+          return
+        }
+
+        const rows = []
+        const header = ['年月', '母親', '父親']
+        children.forEach((_, i) => header.push(`第${i + 1}子`))
+        rows.push(header)
+
+        let current = new Date(start)
+        while (current <= end) {
+          const year = current.getFullYear()
+          const month = current.getMonth() + 1
+
+          const row = [`${year}年${month}月`]
+          row.push(getAgeText(mother, year, month))
+          row.push(getAgeText(father, year, month))
+
+          children.forEach((child) => {
+            if (!child) {
+              row.push('')
+              return
+            }
+
+            const currentDate = new Date(year, month - 1)
+            const birthDate = new Date(
+              child.getFullYear(),
+              child.getMonth(),
+              child.getDate()
+            )
+
+            // 妊娠表示
+            const birthMonth = new Date(
+              birthDate.getFullYear(),
+              birthDate.getMonth(),
+              1
+            )
+            const diffInMonths =
+              (birthMonth.getFullYear() - currentDate.getFullYear()) * 12 +
+              (birthMonth.getMonth() - currentDate.getMonth())
+            if (diffInMonths >= 1 && diffInMonths <= 9) {
+              row.push(`妊娠${10 - diffInMonths}ヶ月`)
+              return
+            }
+
+            const ageText = getAgeText(child, year, month)
+            const age = currentDate.getFullYear() - child.getFullYear()
+            const isApril = currentDate.getMonth() === 3
+            const isMarch = currentDate.getMonth() === 2
+            const schoolStart = new Date(year, 3, 1)
+
+            let label = ''
+
+            // 年少入園（3歳になる年度の4月）
+            const minKindergartenBirth = new Date(
+              schoolStart.getFullYear() - 4,
+              3,
+              2
+            )
+            const maxKindergartenBirth = new Date(
+              schoolStart.getFullYear() - 3,
+              3,
+              1
+            )
+
+            // 小学校入学（6歳になる年度の4月）
+            const minSchoolBirth = new Date(schoolStart.getFullYear() - 7, 3, 2)
+            const maxSchoolBirth = new Date(schoolStart.getFullYear() - 6, 3, 1)
+
+            if (isApril) {
+              if (
+                birthDate >= minKindergartenBirth &&
+                birthDate <= maxKindergartenBirth
+              ) {
+                label = '入園（年少）'
+              } else if (
+                birthDate >= minSchoolBirth &&
+                birthDate <= maxSchoolBirth
+              ) {
+                label = '入学（小1）'
+              } else if (age === 12) {
+                label = '中学入学'
+              } else if (age === 15) {
+                label = '高校入学'
+              } else if (age === 18) {
+                label = '大学入学'
+              }
+            } else if (isMarch && age === 22) {
+              label = '大学卒業'
+            }
+
+            if (label) {
+              row.push(`${ageText} <span class="label">${label}</span>`)
+            } else {
+              row.push(ageText)
+            }
+          })
+
+          rows.push(row)
+          current.setMonth(current.getMonth() + 1)
+        }
+
+        const container = document.getElementById('tableContainer')
+        container.innerHTML = ''
+        const table = document.createElement('table')
+        rows.forEach((r, i) => {
+          const tr = document.createElement('tr')
+          if (i > 0 && r[0].includes('4月')) {
+            tr.classList.add('highlight-april')
+          }
+          r.forEach((c) => {
+            const cell =
+              i === 0
+                ? document.createElement('th')
+                : document.createElement('td')
+            cell.innerHTML = c
+            tr.appendChild(cell)
+          })
+          table.appendChild(tr)
+        })
+        container.appendChild(table)
+
+        window._latestExcelData = rows
+      }
+
+      function downloadExcel() {
+        if (!window._latestExcelData) return alert('まず表を生成してください')
+
+        const cleanRows = window._latestExcelData.map((row) =>
+          row.map((cell) => {
+            const tmp = document.createElement('div')
+            tmp.innerHTML = cell
+            return tmp.innerText
+          })
+        )
+
+        const ws = XLSX.utils.aoa_to_sheet(cleanRows)
+        const wb = XLSX.utils.book_new()
+        XLSX.utils.book_append_sheet(wb, ws, '家族年齢表')
+        XLSX.writeFile(wb, 'family_plan.xlsx')
+      }
+
+      function saveFormData() {
+        const data = {
+          mother: document.getElementById('mother').value,
+          father: document.getElementById('father').value,
+          start: document.getElementById('startMonth').value,
+          end: document.getElementById('endMonth').value,
+          children: Array.from(document.querySelectorAll('.child')).map(
+            (c) => c.value
+          )
+        }
+        localStorage.setItem('familyAgePlanner', JSON.stringify(data))
+      }
+
+      function loadFormData() {
+        const saved = localStorage.getItem('familyAgePlanner')
+        if (!saved) {
+          createChildInput()
+          return
+        }
+        const data = JSON.parse(saved)
+        document.getElementById('mother').value = data.mother || ''
+        document.getElementById('father').value = data.father || ''
+        document.getElementById('startMonth').value = data.start || ''
+        document.getElementById('endMonth').value = data.end || ''
+        data.children.forEach((val) => createChildInput(val))
+      }
+
+      window.onload = function () {
+        loadFormData()
+        document.querySelectorAll('input').forEach((input) => {
+          input.addEventListener('change', saveFormData)
+        })
+      }
+
+      document.getElementById('generateBtn').addEventListener('click', () => {
+        generateTable()
+        saveFormData()
+      })
+
+      document
+        .getElementById('downloadBtn')
+        .addEventListener('click', downloadExcel)
+    </script>
+  </body>
+</html>
