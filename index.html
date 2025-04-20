@@ -1,3 +1,4 @@
+<!-- 育休・ローカル保存・Excel出力対応の完全版 -->
 <!DOCTYPE html>
 <html lang="ja">
   <head>
@@ -43,6 +44,11 @@
     <label>表示終了年月: <input type="month" id="endMonth" /></label
     ><br /><br />
 
+    <h2>育休情報</h2>
+    <button id="addLeaveBtn">育休情報を追加</button>
+    <div id="leaveContainer"></div>
+    <br />
+
     <button id="generateBtn">年齢表を生成</button>
     <button id="downloadBtn">Excelでダウンロード</button>
 
@@ -50,13 +56,15 @@
 
     <script>
       let childCount = 0
+      let leaveCount = 0
+      const leaveData = []
 
       function createChildInput(value = '') {
         childCount++
         const container = document.getElementById('childrenContainer')
         const div = document.createElement('div')
         div.innerHTML = `
-        <label>第${childCount}子の生年月日: 
+        <label>第${childCount}子の生年月日:
           <input type="date" class="child" value="${value}" />
         </label><br/>
       `
@@ -68,9 +76,46 @@
         saveFormData()
       })
 
+      document.getElementById('addLeaveBtn').addEventListener('click', () => {
+        leaveCount++
+        const container = document.getElementById('leaveContainer')
+        const div = document.createElement('div')
+        div.innerHTML = `
+        <fieldset>
+          <legend>育休（${leaveCount}人目）</legend>
+          <label>母 開始: <input type="month" class="motherStart"></label>
+          <label>終了: <input type="month" class="motherEnd"></label>
+          <br/>
+          <label>父 開始: <input type="month" class="fatherStart"></label>
+          <label>終了: <input type="month" class="fatherEnd"></label>
+        </fieldset>
+      `
+        container.appendChild(div)
+      })
+
       const parseDate = (value) => (value ? new Date(value) : null)
 
-      function getAgeText(birth, year, month) {
+      function isOnLeave(ym, role) {
+        return leaveData.some((leave) => {
+          const start = leave[role].start
+          const end = leave[role].end
+          return start && end && ym >= start && ym <= end
+        })
+      }
+
+      function getAgeYearsOnly(birth, year, month) {
+        if (!birth) return ''
+        const refDate = new Date(year, month - 1)
+        let y = refDate.getFullYear() - birth.getFullYear()
+        let m = refDate.getMonth() - birth.getMonth()
+        if (m < 0) {
+          y--
+        }
+        if (y < 0) return ''
+        return `${y}歳`
+      }
+
+      function getAgeWithMonths(birth, year, month) {
         if (!birth) return ''
         const refDate = new Date(year, month - 1)
         let y = refDate.getFullYear() - birth.getFullYear()
@@ -84,6 +129,20 @@
       }
 
       function generateTable() {
+        leaveData.length = 0
+        document.querySelectorAll('fieldset').forEach((field) => {
+          leaveData.push({
+            mother: {
+              start: field.querySelector('.motherStart').value,
+              end: field.querySelector('.motherEnd').value
+            },
+            father: {
+              start: field.querySelector('.fatherStart').value,
+              end: field.querySelector('.fatherEnd').value
+            }
+          })
+        })
+
         const mother = parseDate(document.getElementById('mother').value)
         const father = parseDate(document.getElementById('father').value)
         const children = Array.from(document.querySelectorAll('.child')).map(
@@ -107,16 +166,20 @@
         const rows = []
         const header = ['年月', '母親', '父親']
         children.forEach((_, i) => header.push(`第${i + 1}子`))
+        header.push('育休（母親）', '育休（父親）')
         rows.push(header)
 
         let current = new Date(start)
         while (current <= end) {
           const year = current.getFullYear()
           const month = current.getMonth() + 1
+          const ym = `${year}-${('0' + month).slice(-2)}`
 
-          const row = [`${year}年${month}月`]
-          row.push(getAgeText(mother, year, month))
-          row.push(getAgeText(father, year, month))
+          const row = [
+            `${year}年${month}月`,
+            getAgeYearsOnly(mother, year, month),
+            getAgeYearsOnly(father, year, month)
+          ]
 
           children.forEach((child) => {
             if (!child) {
@@ -131,7 +194,6 @@
               child.getDate()
             )
 
-            // 妊娠表示
             const birthMonth = new Date(
               birthDate.getFullYear(),
               birthDate.getMonth(),
@@ -145,15 +207,13 @@
               return
             }
 
-            const ageText = getAgeText(child, year, month)
+            const ageText = getAgeWithMonths(child, year, month)
             const age = currentDate.getFullYear() - child.getFullYear()
-            const isApril = currentDate.getMonth() === 3
-            const isMarch = currentDate.getMonth() === 2
+            const isApril = current.getMonth() === 3
+            const isMarch = current.getMonth() === 2
             const schoolStart = new Date(year, 3, 1)
 
             let label = ''
-
-            // 年少入園（3歳になる年度の4月）
             const minKindergartenBirth = new Date(
               schoolStart.getFullYear() - 4,
               3,
@@ -164,8 +224,6 @@
               3,
               1
             )
-
-            // 小学校入学（6歳になる年度の4月）
             const minSchoolBirth = new Date(schoolStart.getFullYear() - 7, 3, 2)
             const maxSchoolBirth = new Date(schoolStart.getFullYear() - 6, 3, 1)
 
@@ -191,12 +249,13 @@
               label = '大学卒業'
             }
 
-            if (label) {
-              row.push(`${ageText} <span class="label">${label}</span>`)
-            } else {
-              row.push(ageText)
-            }
+            row.push(
+              label ? `${ageText} <span class="label">${label}</span>` : ageText
+            )
           })
+
+          row.push(isOnLeave(ym, 'mother') ? '育休中' : '')
+          row.push(isOnLeave(ym, 'father') ? '育休中' : '')
 
           rows.push(row)
           current.setMonth(current.getMonth() + 1)
@@ -221,7 +280,6 @@
           table.appendChild(tr)
         })
         container.appendChild(table)
-
         window._latestExcelData = rows
       }
 
@@ -250,6 +308,14 @@
           end: document.getElementById('endMonth').value,
           children: Array.from(document.querySelectorAll('.child')).map(
             (c) => c.value
+          ),
+          leaves: Array.from(document.querySelectorAll('fieldset')).map(
+            (field) => ({
+              motherStart: field.querySelector('.motherStart').value,
+              motherEnd: field.querySelector('.motherEnd').value,
+              fatherStart: field.querySelector('.fatherStart').value,
+              fatherEnd: field.querySelector('.fatherEnd').value
+            })
           )
         }
         localStorage.setItem('familyAgePlanner', JSON.stringify(data))
@@ -266,7 +332,39 @@
         document.getElementById('father').value = data.father || ''
         document.getElementById('startMonth').value = data.start || ''
         document.getElementById('endMonth').value = data.end || ''
-        data.children.forEach((val) => createChildInput(val))
+
+        if (data.children && data.children.length) {
+          data.children.forEach((val) => createChildInput(val))
+        } else {
+          createChildInput()
+        }
+
+        if (data.leaves && data.leaves.length) {
+          data.leaves.forEach((leave) => {
+            leaveCount++
+            const container = document.getElementById('leaveContainer')
+            const div = document.createElement('div')
+            div.innerHTML = `
+            <fieldset>
+              <legend>育休（${leaveCount}人目）</legend>
+              <label>母 開始: <input type="month" class="motherStart" value="${
+                leave.motherStart || ''
+              }"></label>
+              <label>終了: <input type="month" class="motherEnd" value="${
+                leave.motherEnd || ''
+              }"></label>
+              <br/>
+              <label>父 開始: <input type="month" class="fatherStart" value="${
+                leave.fatherStart || ''
+              }"></label>
+              <label>終了: <input type="month" class="fatherEnd" value="${
+                leave.fatherEnd || ''
+              }"></label>
+            </fieldset>
+          `
+            container.appendChild(div)
+          })
+        }
       }
 
       window.onload = function () {
